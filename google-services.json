@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "833891372815",
+    "project_id": "salesinventoryapp-c4059",
+    "storage_bucket": "salesinventoryapp-c4059.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:833891372815:android:81ef03925d4f11cd6d387a",
+        "android_client_info": {
+          "package_name": "com.jayai.salesinventory"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "833891372815-2v17ob9k9jt4mo9smvuv27cgiqcf5aum.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.jayai.salesinventory",
+            "certificate_hash": "cfcc0f7a493958a10056a6b3078294fa75fd45f0"
+          }
+        },
+        {
+          "client_id": "833891372815-g5rnbq7kh0nifrsogim4kn9efkd5eiaf.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAued4-UKDt2Za7Q9dRYcCk65VrmMcQLE8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "833891372815-g5rnbq7kh0nifrsogim4kn9efkd5eiaf.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

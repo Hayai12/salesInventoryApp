@@ -1,16 +1,28 @@
 // File: App.js
-import React from 'react';
+import React, { useContext } from 'react';
 import { Provider as PaperProvider } from 'react-native-paper';
 import { NavigationContainer } from '@react-navigation/native';
+import { AppProvider, AppContext } from './context/AppContext';
+import AuthNavigator from './navigation/AuthNavigator';
 import AppNavigator from './navigation/AppNavigator';
-import { AppProvider } from './context/AppContext';
+
+function Routes() {
+  const { user, loading } = useContext(AppContext);
+
+  if (loading) {
+    // Puedes poner un spinner o mensaje de carga
+    return null;
+  }
+
+  return user ? <AppNavigator /> : <AuthNavigator />;
+}
 
 export default function App() {
   return (
     <AppProvider>
       <PaperProvider>
         <NavigationContainer>
-          <AppNavigator />
+          <Routes />
         </NavigationContainer>
       </PaperProvider>
     </AppProvider>
