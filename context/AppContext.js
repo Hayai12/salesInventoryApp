@@ -14,7 +14,8 @@ import {
   onSnapshot,
   doc,
   updateDoc,
-  increment
+  increment,
+  deleteDoc
 } from 'firebase/firestore';
 
 export const AppContext = createContext();
@@ -70,19 +71,28 @@ export const AppProvider = ({ children }) => {
     return signOut(auth);
   };
 
-  // Funciones de Inventario
   const addProduct = async (product) => {
     if (!user) return;
     const invRef = collection(db, "users", user.uid, "inventory");
-
-    // Para un negocio de ropa, se considera producto duplicado si nombre, talla y color coinciden
-    const existing = inventory.find(
-      p =>
-        p.name.toLowerCase() === product.name.toLowerCase() &&
-        p.size.toLowerCase() === product.size.toLowerCase() &&
-        p.color.toLowerCase() === product.color.toLowerCase()
-    );
-    if (existing) {
+  
+    // Verificar duplicados en base a nombre, marca y variantes (talla y color)
+    const duplicate = inventory.some(existingProduct => {
+      if (
+        (existingProduct.name || '').toLowerCase() === (product.name || '').toLowerCase() &&
+        (existingProduct.brand || '').toLowerCase() === (product.brand || '').toLowerCase() &&
+        Array.isArray(existingProduct.variants)
+      ) {
+        return product.variants.some(newVariant =>
+          existingProduct.variants.some(existingVariant =>
+            (existingVariant.size || '').toLowerCase() === (newVariant.size || '').toLowerCase() &&
+            (existingVariant.color || '').toLowerCase() === (newVariant.color || '').toLowerCase()
+          )
+        );
+      }
+      return false;
+    });
+  
+    if (duplicate) {
       throw new Error("El producto ya existe (mismo nombre, talla y color)");
     } else {
       await addDoc(invRef, { 
@@ -91,6 +101,13 @@ export const AppProvider = ({ children }) => {
         dateIncorporation: new Date().toISOString()
       });
     }
+  };
+  
+  
+  const deleteProduct = async (productId) => {
+    if (!user) return;
+    const prodRef = doc(db, "users", user.uid, "inventory", productId);
+    await deleteDoc(prodRef);
   };
 
   const updateProduct = async (productId, newData) => {
@@ -153,7 +170,8 @@ export const AppProvider = ({ children }) => {
       addProduct,
       updateProduct,
       addSale,
-      editSale
+      editSale,
+      deleteProduct
     }}>
       {children}
     </AppContext.Provider>

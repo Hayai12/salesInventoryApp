@@ -1,6 +1,5 @@
-// File: /screens/SalesScreen.js
 import React, { useState, useContext, useEffect } from 'react';
-import { FlatList, StyleSheet, View } from 'react-native';
+import { FlatList, StyleSheet, View, ScrollView, TouchableWithoutFeedback, Keyboard } from 'react-native';
 import {
   Text,
   TextInput,
@@ -15,16 +14,20 @@ import { AppContext } from '../context/AppContext';
 
 export default function SalesScreen({ navigation }) {
   const { inventory, sales, addSale, editSale } = useContext(AppContext);
-  
+
   // Estado para manejar los productos incluidos en la venta
-  // Cada elemento: { productId, name, quantity, price, override, paymentMethod, channel }
+  // Cada elemento incluirá: { productId, name, variant: { size, color }, quantity, price, override, paymentMethod, channel }
   const [saleProducts, setSaleProducts] = useState([]);
   const [editingSale, setEditingSale] = useState(null);
-  
-  // Estados para modal de selección
+
+  // Estado para modal de búsqueda de productos
   const [modalVisible, setModalVisible] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  
+
+  // Estado para modal de selección de variante
+  const [variantSelectionModalVisible, setVariantSelectionModalVisible] = useState(false);
+  const [selectedProductForSale, setSelectedProductForSale] = useState(null);
+
   // Valores por defecto para método de pago y canal
   const [defaultPaymentMethod, setDefaultPaymentMethod] = useState("Efectivo");
   const [defaultChannel, setDefaultChannel] = useState("Local");
@@ -41,12 +44,43 @@ export default function SalesScreen({ navigation }) {
     product.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  // Al seleccionar un producto, si tiene variantes, se abre el modal para elegir una
   const selectProduct = (product) => {
-    const exists = saleProducts.find(item => item.productId === product.id);
+    if (product.variants && product.variants.length > 0) {
+      setSelectedProductForSale(product);
+      setVariantSelectionModalVisible(true);
+    } else {
+      // Si el producto no tuviera variantes (lo ideal es que siempre tenga variantes)
+      const exists = saleProducts.find(item => item.productId === product.id);
+      if (!exists) {
+        setSaleProducts([...saleProducts, { 
+          productId: product.id, 
+          name: product.name, 
+          quantity: 1, 
+          price: 0,
+          override: false,
+          paymentMethod: defaultPaymentMethod,
+          channel: defaultChannel
+        }]);
+      }
+      setModalVisible(false);
+      setSearchTerm('');
+    }
+  };
+
+  // Al seleccionar una variante, se añade el producto con la variante elegida
+  const handleVariantSelection = (variant) => {
+    const exists = saleProducts.find(item => 
+      item.productId === selectedProductForSale.id &&
+      item.variant &&
+      item.variant.size.toLowerCase() === variant.size.toLowerCase() &&
+      item.variant.color.toLowerCase() === variant.color.toLowerCase()
+    );
     if (!exists) {
       setSaleProducts([...saleProducts, { 
-        productId: product.id, 
-        name: product.name, 
+        productId: selectedProductForSale.id, 
+        name: selectedProductForSale.name,
+        variant: variant,
         quantity: 1, 
         price: 0,
         override: false,
@@ -54,37 +88,40 @@ export default function SalesScreen({ navigation }) {
         channel: defaultChannel
       }]);
     }
+    setVariantSelectionModalVisible(false);
     setModalVisible(false);
     setSearchTerm('');
+    setSelectedProductForSale(null);
   };
 
-  const updateSaleItem = (productId, field, value) => {
+  // Actualiza un campo de un ítem de venta basado en productId y la variante
+  const updateSaleItem = (productId, variant, field, value) => {
     setSaleProducts(
       saleProducts.map(item =>
-        item.productId === productId ? { ...item, [field]: value } : item
-      )
-    );
-  };
-
-  const toggleProductOverride = (productId) => {
-    setSaleProducts(
-      saleProducts.map(item =>
-        item.productId === productId 
-          ? { 
-              ...item, 
-              override: !item.override, 
-              paymentMethod: !item.override ? defaultPaymentMethod : defaultPaymentMethod, 
-              channel: !item.override ? defaultChannel : defaultChannel 
-            }
+        (item.productId === productId &&
+         item.variant &&
+         item.variant.size.toLowerCase() === variant.size.toLowerCase() &&
+         item.variant.color.toLowerCase() === variant.color.toLowerCase())
+          ? { ...item, [field]: value }
           : item
       )
     );
   };
 
-  const updateProductOverride = (productId, field, value) => {
+  const toggleProductOverride = (productId, variant) => {
     setSaleProducts(
       saleProducts.map(item =>
-        item.productId === productId ? { ...item, [field]: value } : item
+        (item.productId === productId &&
+         item.variant &&
+         item.variant.size.toLowerCase() === variant.size.toLowerCase() &&
+         item.variant.color.toLowerCase() === variant.color.toLowerCase())
+          ? { 
+              ...item, 
+              override: !item.override, 
+              paymentMethod: defaultPaymentMethod, 
+              channel: defaultChannel 
+            }
+          : item
       )
     );
   };
@@ -96,7 +133,12 @@ export default function SalesScreen({ navigation }) {
   const validateStock = () => {
     for (const item of saleProducts) {
       const prod = inventory.find(p => p.id === item.productId);
-      if (!prod || prod.stock < item.quantity) {
+      if (!prod || !prod.variants || prod.variants.length === 0) return false;
+      const variant = prod.variants.find(v =>
+        (v.size || '').toLowerCase() === (item.variant.size || '').toLowerCase() &&
+        (v.color || '').toLowerCase() === (item.variant.color || '').toLowerCase()
+      );
+      if (!variant || variant.stock < item.quantity) {
         return false;
       }
     }
@@ -110,8 +152,16 @@ export default function SalesScreen({ navigation }) {
     }
     for (const item of saleProducts) {
       const prod = inventory.find(p => p.id === item.productId);
-      if (!prod || prod.stock < item.quantity) {
-        alert(`No hay suficiente stock para ${item.name}`);
+      if (!prod || !prod.variants || prod.variants.length === 0) {
+        alert(`No se encontró variantes para ${item.name}`);
+        return;
+      }
+      const variant = prod.variants.find(v =>
+        (v.size || '').toLowerCase() === (item.variant.size || '').toLowerCase() &&
+        (v.color || '').toLowerCase() === (item.variant.color || '').toLowerCase()
+      );
+      if (!variant || variant.stock < item.quantity) {
+        alert(`No hay suficiente stock para ${item.name} (${item.variant.size} - ${item.variant.color})`);
         return;
       }
     }
@@ -166,15 +216,17 @@ export default function SalesScreen({ navigation }) {
           <Button mode="outlined" onPress={() => setModalVisible(true)} style={styles.button}>
             Seleccionar Producto
           </Button>
-          {saleProducts.map(item => (
-            <Card key={item.productId} style={styles.saleItemCard}>
+          {saleProducts.map((item, index) => (
+            <Card key={index} style={styles.saleItemCard}>
               <Card.Content>
-                <Text>{item.name}</Text>
+                <Text>
+                  {item.name} {item.variant ? `- Talla: ${item.variant.size} - Color: ${item.variant.color}` : ""}
+                </Text>
                 <TextInput
                   label="Cantidad"
                   value={item.quantity.toString()}
                   onChangeText={(val) =>
-                    updateSaleItem(item.productId, 'quantity', parseInt(val) || 0)
+                    updateSaleItem(item.productId, item.variant, 'quantity', parseInt(val) || 0)
                   }
                   keyboardType="numeric"
                   style={styles.input}
@@ -183,7 +235,7 @@ export default function SalesScreen({ navigation }) {
                   label="Precio"
                   value={item.price.toString()}
                   onChangeText={(val) =>
-                    updateSaleItem(item.productId, 'price', parseFloat(val) || 0)
+                    updateSaleItem(item.productId, item.variant, 'price', parseFloat(val) || 0)
                   }
                   keyboardType="numeric"
                   style={styles.input}
@@ -191,7 +243,7 @@ export default function SalesScreen({ navigation }) {
                 <Text>Subtotal: ${item.quantity * item.price}</Text>
                 <Button 
                   mode="outlined" 
-                  onPress={() => toggleProductOverride(item.productId)}
+                  onPress={() => toggleProductOverride(item.productId, item.variant)}
                   style={styles.button}
                 >
                   {item.override ? "Usar valores por defecto" : "Modificar individualmente"}
@@ -200,7 +252,7 @@ export default function SalesScreen({ navigation }) {
                   <>
                     <Text style={styles.label}>Método de Pago:</Text>
                     <RadioButton.Group
-                      onValueChange={(value) => updateProductOverride(item.productId, 'paymentMethod', value)}
+                      onValueChange={(value) => updateSaleItem(item.productId, item.variant, 'paymentMethod', value)}
                       value={item.paymentMethod}
                     >
                       <RadioButton.Item label="Efectivo" value="Efectivo" />
@@ -209,7 +261,7 @@ export default function SalesScreen({ navigation }) {
                     </RadioButton.Group>
                     <Text style={styles.label}>Canal:</Text>
                     <RadioButton.Group
-                      onValueChange={(value) => updateProductOverride(item.productId, 'channel', value)}
+                      onValueChange={(value) => updateSaleItem(item.productId, item.variant, 'channel', value)}
                       value={item.channel}
                     >
                       <RadioButton.Item label="Local" value="Local" />
@@ -231,13 +283,14 @@ export default function SalesScreen({ navigation }) {
           )}
         </Card.Content>
       </Card>
-      <Text variant="titleMedium" style={styles.listTitle}>Historial de Ventas</Text>
+      <Text style={styles.listTitle}>Historial de Ventas</Text>
     </View>
   );
 
   return (
     <PaperProvider>
       <Portal>
+        {/* Modal para búsqueda de productos */}
         <Modal visible={modalVisible} onDismiss={() => setModalVisible(false)} contentContainerStyle={styles.modalContainer}>
           <TextInput
             label="Buscar producto"
@@ -252,7 +305,7 @@ export default function SalesScreen({ navigation }) {
               <Card style={styles.card}>
                 <Card.Title
                   title={item.name}
-                  subtitle={`Stock: ${item.stock} | Talla: ${item.size} | Color: ${item.color}`}
+                  subtitle={item.variants && item.variants.length > 0 ? `Variantes disponibles: ${item.variants.length}` : "Sin variantes"}
                 />
                 <Card.Actions>
                   <Button onPress={() => selectProduct(item)}>Seleccionar</Button>
@@ -261,6 +314,23 @@ export default function SalesScreen({ navigation }) {
             )}
             ListEmptyComponent={<Text>No se encontraron productos.</Text>}
           />
+        </Modal>
+
+        {/* Modal para selección de variante */}
+        <Modal visible={variantSelectionModalVisible} onDismiss={() => { setVariantSelectionModalVisible(false); setSelectedProductForSale(null); }} contentContainerStyle={styles.modalContainer}>
+          <ScrollView>
+            <Text style={styles.modalTitle}>
+              Selecciona la variante para {selectedProductForSale ? selectedProductForSale.name : ''}
+            </Text>
+            {selectedProductForSale && selectedProductForSale.variants.map((variant, index) => (
+              <Card key={index} style={styles.card}>
+                <Card.Title title={`Talla: ${variant.size} - Color: ${variant.color}`} subtitle={`Stock: ${variant.stock}`} />
+                <Card.Actions>
+                  <Button onPress={() => handleVariantSelection(variant)}>Seleccionar</Button>
+                </Card.Actions>
+              </Card>
+            ))}
+          </ScrollView>
         </Modal>
       </Portal>
       <FlatList
@@ -273,7 +343,7 @@ export default function SalesScreen({ navigation }) {
             <Card.Content>
               {item.products.map(prod => (
                 <Text key={prod.productId}>
-                  {prod.name} - Cant: {prod.quantity} - Precio: ${prod.price} - Pago: {prod.paymentMethod} - Canal: {prod.channel}
+                  {prod.name} {prod.variant ? `- Talla: ${prod.variant.size} - Color: ${prod.variant.color}` : ''} - Cant: {prod.quantity} - Precio: ${prod.price} - Pago: {prod.paymentMethod} - Canal: {prod.channel}
                 </Text>
               ))}
               <Button mode="text" onPress={() => handleEditSale(item)}>
@@ -328,5 +398,11 @@ const styles = StyleSheet.create({
   label: {
     fontWeight: 'bold',
     marginTop: 10
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 10,
+    textAlign: 'center'
   }
 });
