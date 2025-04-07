@@ -1,205 +1,254 @@
 import React, { useState, useContext } from 'react';
-import { 
-  View, 
-  FlatList, 
-  StyleSheet, 
-  Alert, 
-  Modal, 
-  TouchableWithoutFeedback, 
-  Keyboard, 
-  ScrollView 
-} from 'react-native';
-import { Text, TextInput, Button, Card } from 'react-native-paper';
+import { View, FlatList, StyleSheet, Alert } from 'react-native';
+import { Text, TextInput, Button, Card, Portal, Dialog, Menu } from 'react-native-paper';
 import { AppContext } from '../context/AppContext';
 
 export default function InventoryScreen() {
   const { inventory, updateProduct } = useContext(AppContext);
 
-  // Estado para el modal de gestión de variantes
-  const [variantModalVisible, setVariantModalVisible] = useState(false);
+  // Estado para el producto seleccionado al editar/agregar variantes
   const [selectedProduct, setSelectedProduct] = useState(null);
 
-  // Estados para la variante que se desea agregar o editar
-  const [variantSize, setVariantSize] = useState('');
-  const [variantColor, setVariantColor] = useState('');
-  const [variantStock, setVariantStock] = useState('');
+  // Estados para el diálogo de edición de variantes
+  const [editVariantsDialogVisible, setEditVariantsDialogVisible] = useState(false);
+  const [editedVariants, setEditedVariants] = useState([]);
 
-  // Abre el modal para gestionar variantes del producto seleccionado
-  const openVariantModal = (product) => {
+  // Estados para el diálogo de agregar variante
+  const [addVariantDialogVisible, setAddVariantDialogVisible] = useState(false);
+  const [newVariantStock, setNewVariantStock] = useState("");
+  const [newVariantSize, setNewVariantSize] = useState("M");
+  const [newVariantColor, setNewVariantColor] = useState("Negro");
+  const [newSizeMenuVisible, setNewSizeMenuVisible] = useState(false);
+  const [newColorMenuVisible, setNewColorMenuVisible] = useState(false);
+
+  // Opciones predefinidas para talla y color
+  const sizeOptions = ["XS", "S", "M", "L", "XL"];
+  const colorOptions = ["Rojo", "Verde", "Azul", "Negro", "Blanco"];
+
+  // Abrir diálogo para editar variantes (se hace una copia local de las variantes existentes)
+  const openEditVariantsDialog = (product) => {
     setSelectedProduct(product);
-    setVariantModalVisible(true);
-  };
-
-  // Cierra el modal y resetea campos
-  const closeVariantModal = () => {
-    setVariantModalVisible(false);
-    setSelectedProduct(null);
-    setVariantSize('');
-    setVariantColor('');
-    setVariantStock('');
-  };
-
-  // Función para agregar una nueva variante al producto
-  const handleAddVariant = async () => {
-    if (!variantSize.trim() || !variantColor.trim() || !variantStock.trim()) {
-      Alert.alert("Error", "Complete todos los campos de la variante");
-      return;
-    }
-    if (isNaN(parseInt(variantStock))) {
-      Alert.alert("Error", "El stock debe ser un número");
-      return;
-    }
-
-    // Tomamos las variantes actuales o un arreglo vacío
-    const currentVariants = selectedProduct.variants || [];
-
-    // Verificar si ya existe la variante (mismo tamaño y color)
-    const duplicate = currentVariants.some(v =>
-      (v.size || '').toLowerCase() === variantSize.trim().toLowerCase() &&
-      (v.color || '').toLowerCase() === variantColor.trim().toLowerCase()
+    setEditedVariants(
+      product.variants
+        ? product.variants.map(v => ({ ...v, stock: v.stock.toString() }))
+        : []
     );
-    if (duplicate) {
-      Alert.alert("Error", "La variante ya existe para este producto");
+    setEditVariantsDialogVisible(true);
+  };
+
+  const closeEditVariantsDialog = () => {
+    setEditVariantsDialogVisible(false);
+    setSelectedProduct(null);
+    setEditedVariants([]);
+  };
+
+  // Guarda las modificaciones en las variantes y actualiza el stock total
+  const handleSaveVariants = async () => {
+    if (!selectedProduct) return;
+    // Se valida y se convierte el stock de cada variante a número
+    const updatedVariants = editedVariants.map(v => ({
+      size: v.size,
+      color: v.color,
+      stock: parseInt(v.stock) || 0
+    }));
+    const overallStock = updatedVariants.reduce((sum, v) => sum + v.stock, 0);
+    try {
+      await updateProduct(selectedProduct.id, {
+        variants: updatedVariants,
+        stock: overallStock
+      });
+      closeEditVariantsDialog();
+    } catch (error) {
+      Alert.alert("Error", error.message);
+    }
+  };
+
+  // Abrir diálogo para agregar una nueva variante
+  const openAddVariantDialog = (product) => {
+    setSelectedProduct(product);
+    setNewVariantSize("M");
+    setNewVariantColor("Negro");
+    setNewVariantStock("");
+    setAddVariantDialogVisible(true);
+  };
+
+  const closeAddVariantDialog = () => {
+    setAddVariantDialogVisible(false);
+    setSelectedProduct(null);
+  };
+
+  // Valida que no exista una variante duplicada y actualiza el producto con la nueva variante
+  const handleAddVariant = async () => {
+    if (!selectedProduct) return;
+    if (newVariantStock.trim() === '' || isNaN(newVariantStock)) {
+      Alert.alert("Error", "El stock debe ser un número válido");
       return;
     }
-
-    const newVariant = {
-      size: variantSize.trim(),
-      color: variantColor.trim(),
-      stock: parseInt(variantStock)
+    // Verifica que no exista una variante con la misma talla y color
+    const exists = (selectedProduct.variants || []).some(v =>
+      v.size === newVariantSize && v.color === newVariantColor
+    );
+    if (exists) {
+      Alert.alert("Error", "La variante ya existe (mismo tamaño y color)");
+      return;
+    }
+    const variantToAdd = {
+      size: newVariantSize,
+      color: newVariantColor,
+      stock: parseInt(newVariantStock)
     };
-
-    const updatedVariants = [...currentVariants, newVariant];
-
+    const updatedVariants = selectedProduct.variants
+      ? [...selectedProduct.variants, variantToAdd]
+      : [variantToAdd];
+    const overallStock = updatedVariants.reduce((sum, v) => sum + v.stock, 0);
     try {
-      await updateProduct(selectedProduct.id, { variants: updatedVariants });
-      closeVariantModal();
+      await updateProduct(selectedProduct.id, {
+        variants: updatedVariants,
+        stock: overallStock
+      });
+      closeAddVariantDialog();
     } catch (error) {
       Alert.alert("Error", error.message);
     }
   };
-
-  // Permite eliminar una variante existente
-  const handleDeleteVariant = async (variantIndex) => {
-    const updatedVariants = selectedProduct.variants.filter((_, index) => index !== variantIndex);
-    try {
-      await updateProduct(selectedProduct.id, { variants: updatedVariants });
-    } catch (error) {
-      Alert.alert("Error", error.message);
-    }
-  };
-
-  // Función auxiliar para calcular el stock total de un producto a partir de sus variantes
-  const getTotalStock = (product) => {
-    if (!product.variants || product.variants.length === 0) return 0;
-    return product.variants.reduce((total, v) => total + (parseInt(v.stock) || 0), 0);
-  };
-
-  // Renderiza cada producto en la lista
-  const renderProduct = ({ item }) => (
-    <Card style={styles.card}>
-      <Card.Title 
-        title={item.name} 
-        subtitle={`Stock Total: ${getTotalStock(item)}`} 
-      />
-      <Card.Content>
-        <Text>Costo: ${ (item.costPrice !== undefined ? item.costPrice : 0).toFixed(2) }</Text>
-        <Text>Venta: ${ (item.salePrice !== undefined ? item.salePrice : 0).toFixed(2) }</Text>
-        <Text>Marca: {item.brand}</Text>
-        {item.variants && item.variants.length > 0 ? (
-          <View style={styles.variantList}>
-            {item.variants.map((v, index) => (
-              <Text key={index}>
-                Talla: {v.size} - Color: {v.color} - Stock: {v.stock}
-              </Text>
-            ))}
-          </View>
-        ) : (
-          <Text>No hay variantes agregadas</Text>
-        )}
-      </Card.Content>
-      <Card.Actions>
-        <Button onPress={() => openVariantModal(item)}>Gestionar Variantes</Button>
-      </Card.Actions>
-    </Card>
-  );
 
   return (
     <View style={styles.container}>
       <FlatList
         data={inventory}
         keyExtractor={(item) => item.id}
-        renderItem={renderProduct}
+        renderItem={({ item }) => (
+          <Card style={styles.card}>
+            <Card.Title title={item.name} subtitle={`Stock total: ${item.stock || 0}`} />
+            <Card.Content>
+              <Text>Costo: ${(item.costPrice !== undefined ? item.costPrice : 0).toFixed(2)}</Text>
+              <Text>Venta: ${(item.salePrice !== undefined ? item.salePrice : 0).toFixed(2)}</Text>
+              <Text>Marca: {item.brand}</Text>
+              {item.variants && item.variants.length > 0 ? (
+                <View style={styles.variantsContainer}>
+                  <Text>Variantes ({item.variants.length}):</Text>
+                  {item.variants.map((variant, index) => (
+                    <Text key={index}>
+                      Talla: {variant.size}, Color: {variant.color}, Stock: {variant.stock}
+                    </Text>
+                  ))}
+                </View>
+              ) : (
+                <Text>Sin variantes</Text>
+              )}
+            </Card.Content>
+            <Card.Actions>
+              <Button onPress={() => openEditVariantsDialog(item)}>Editar Variantes</Button>
+              <Button onPress={() => openAddVariantDialog(item)}>Agregar Variante</Button>
+            </Card.Actions>
+          </Card>
+        )}
         ListEmptyComponent={<Text style={styles.empty}>No hay productos en el inventario.</Text>}
         contentContainerStyle={styles.listContainer}
       />
 
-      {/* Modal para gestión de variantes */}
-      <Modal
-        visible={variantModalVisible}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={closeVariantModal}
-      >
-        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-          <ScrollView contentContainerStyle={styles.modalOverlay}>
-            <View style={styles.modalContent}>
-              <Text style={styles.modalTitle}>
-                Gestionar Variantes de {selectedProduct ? selectedProduct.name : ''}
-              </Text>
-              
-              {/* Listado de variantes actuales con opción de eliminar */}
-              {selectedProduct && selectedProduct.variants && selectedProduct.variants.length > 0 && (
-                <View style={styles.existingVariants}>
-                  {selectedProduct.variants.map((v, index) => (
-                    <View key={index} style={styles.variantRow}>
-                      <Text style={styles.variantText}>
-                        Talla: {v.size} - Color: {v.color} - Stock: {v.stock}
-                      </Text>
-                      <Button 
-                        mode="text" 
-                        onPress={() => handleDeleteVariant(index)}
-                        color="red"
-                      >
-                        Eliminar
-                      </Button>
-                    </View>
-                  ))}
-                </View>
-              )}
-
-              <Text style={styles.modalSubtitle}>Agregar nueva variante</Text>
-              <TextInput
-                label="Talla"
-                value={variantSize}
-                onChangeText={setVariantSize}
-                style={styles.input}
-              />
-              <TextInput
-                label="Color"
-                value={variantColor}
-                onChangeText={setVariantColor}
-                style={styles.input}
-              />
-              <TextInput
-                label="Stock"
-                value={variantStock}
-                onChangeText={setVariantStock}
-                keyboardType="numeric"
-                style={styles.input}
-              />
-              <View style={styles.modalButtons}>
-                <Button mode="outlined" onPress={closeVariantModal} style={styles.modalButton}>
-                  Cancelar
-                </Button>
-                <Button mode="contained" onPress={handleAddVariant} style={styles.modalButton}>
-                  Guardar Cambios
-                </Button>
+      {/* Diálogo para editar variantes */}
+      <Portal>
+        <Dialog visible={editVariantsDialogVisible} onDismiss={closeEditVariantsDialog}>
+          <Dialog.Title>Editar Variantes</Dialog.Title>
+          <Dialog.Content>
+            {editedVariants.map((variant, index) => (
+              <View key={index} style={styles.variantRow}>
+                <Text style={styles.variantText}>
+                  Talla: {variant.size}, Color: {variant.color}
+                </Text>
+                <TextInput
+                  style={[styles.input, styles.variantInput]}
+                  label="Stock"
+                  value={variant.stock}
+                  keyboardType="numeric"
+                  onChangeText={(value) => {
+                    const newVariants = [...editedVariants];
+                    newVariants[index].stock = value;
+                    setEditedVariants(newVariants);
+                  }}
+                />
               </View>
-            </View>
-          </ScrollView>
-        </TouchableWithoutFeedback>
-      </Modal>
+            ))}
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={closeEditVariantsDialog}>Cancelar</Button>
+            <Button onPress={handleSaveVariants}>Guardar</Button>
+          </Dialog.Actions>
+        </Dialog>
+      </Portal>
+
+      {/* Diálogo para agregar una nueva variante */}
+      <Portal>
+        <Dialog visible={addVariantDialogVisible} onDismiss={closeAddVariantDialog}>
+          <Dialog.Title>Agregar Variante</Dialog.Title>
+          <Dialog.Content>
+            {/* Selector de Talla */}
+            <Menu
+              visible={newSizeMenuVisible}
+              onDismiss={() => setNewSizeMenuVisible(false)}
+              anchor={
+                <Button
+                  mode="outlined"
+                  onPress={() => setNewSizeMenuVisible(true)}
+                  style={styles.menuButton}
+                >
+                  {newVariantSize}
+                </Button>
+              }
+            >
+              {sizeOptions.map((size) => (
+                <Menu.Item
+                  key={size}
+                  onPress={() => {
+                    setNewVariantSize(size);
+                    setNewSizeMenuVisible(false);
+                  }}
+                  title={size}
+                />
+              ))}
+            </Menu>
+
+            {/* Selector de Color */}
+            <Menu
+              visible={newColorMenuVisible}
+              onDismiss={() => setNewColorMenuVisible(false)}
+              anchor={
+                <Button
+                  mode="outlined"
+                  onPress={() => setNewColorMenuVisible(true)}
+                  style={styles.menuButton}
+                >
+                  {newVariantColor}
+                </Button>
+              }
+            >
+              {colorOptions.map((color) => (
+                <Menu.Item
+                  key={color}
+                  onPress={() => {
+                    setNewVariantColor(color);
+                    setNewColorMenuVisible(false);
+                  }}
+                  title={color}
+                />
+              ))}
+            </Menu>
+
+            <TextInput
+              label="Stock"
+              value={newVariantStock}
+              onChangeText={setNewVariantStock}
+              keyboardType="numeric"
+              style={styles.input}
+            />
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={closeAddVariantDialog}>Cancelar</Button>
+            <Button onPress={handleAddVariant}>Agregar</Button>
+          </Dialog.Actions>
+        </Dialog>
+      </Portal>
     </View>
   );
 }
@@ -220,54 +269,26 @@ const styles = StyleSheet.create({
     textAlign: 'center', 
     marginTop: 20 
   },
-  variantList: {
-    marginTop: 10
+  variantsContainer: { 
+    marginTop: 10 
   },
-  modalOverlay: { 
-    flexGrow: 1,
-    backgroundColor: 'rgba(0,0,0,0.3)', 
-    justifyContent: 'center', 
+  variantRow: { 
+    flexDirection: 'row', 
     alignItems: 'center', 
-    padding: 20
-  },
-  modalContent: { 
-    width: '100%',
-    maxWidth: 400,
-    backgroundColor: '#fff', 
-    padding: 20, 
-    borderRadius: 8
-  },
-  modalTitle: { 
-    fontSize: 18, 
-    fontWeight: 'bold', 
-    marginBottom: 10, 
-    textAlign: 'center'
-  },
-  modalSubtitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    marginVertical: 10
-  },
-  input: { 
     marginBottom: 10 
   },
-  modalButtons: { 
-    flexDirection: 'row', 
-    justifyContent: 'flex-end' 
+  variantText: { 
+    flex: 1 
   },
-  modalButton: { 
-    marginLeft: 10 
+  input: { 
+    marginBottom: 10, 
+    flex: 1 
   },
-  existingVariants: {
-    marginBottom: 10
+  variantInput: { 
+    width: 80 
   },
-  variantRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginVertical: 5
-  },
-  variantText: {
-    flex: 1
+  menuButton: { 
+    marginBottom: 10 
   }
 });
+

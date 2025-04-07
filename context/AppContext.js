@@ -1,4 +1,3 @@
-// File: /context/AppContext.js
 import React, { createContext, useState, useEffect } from 'react';
 import { auth, db } from '../firebase/firebase';
 import {
@@ -74,24 +73,34 @@ export const AppProvider = ({ children }) => {
   const addProduct = async (product) => {
     if (!user) return;
     const invRef = collection(db, "users", user.uid, "inventory");
-  
-    // Verificar duplicados en base a nombre, marca y variantes (talla y color)
+
+    // Verificar duplicados basado en nombre, marca y variantes
     const duplicate = inventory.some(existingProduct => {
-      if (
-        (existingProduct.name || '').toLowerCase() === (product.name || '').toLowerCase() &&
-        (existingProduct.brand || '').toLowerCase() === (product.brand || '').toLowerCase() &&
-        Array.isArray(existingProduct.variants)
-      ) {
-        return product.variants.some(newVariant =>
-          existingProduct.variants.some(existingVariant =>
-            (existingVariant.size || '').toLowerCase() === (newVariant.size || '').toLowerCase() &&
-            (existingVariant.color || '').toLowerCase() === (newVariant.color || '').toLowerCase()
-          )
-        );
+      const sameName = (existingProduct.name || '').toLowerCase() === (product.name || '').toLowerCase();
+      const sameBrand = (existingProduct.brand || '').toLowerCase() === (product.brand || '').toLowerCase();
+
+      if (sameName && sameBrand) {
+        const existingVariants = existingProduct.variants || [];
+        const newVariants = product.variants || [];
+
+        // Si ambos tienen variantes vacías, se considera duplicado
+        if (existingVariants.length === 0 && newVariants.length === 0) {
+          return true;
+        }
+
+        // Si ambos tienen variantes, se verifica si existe al menos una coincidencia en talla y color
+        if (existingVariants.length > 0 && newVariants.length > 0) {
+          return newVariants.some(newVariant =>
+            existingVariants.some(existingVariant =>
+              (existingVariant.size || '').toLowerCase() === (newVariant.size || '').toLowerCase() &&
+              (existingVariant.color || '').toLowerCase() === (newVariant.color || '').toLowerCase()
+            )
+          );
+        }
       }
       return false;
     });
-  
+
     if (duplicate) {
       throw new Error("El producto ya existe (mismo nombre, talla y color)");
     } else {
@@ -102,8 +111,7 @@ export const AppProvider = ({ children }) => {
       });
     }
   };
-  
-  
+
   const deleteProduct = async (productId) => {
     if (!user) return;
     const prodRef = doc(db, "users", user.uid, "inventory", productId);
@@ -117,16 +125,43 @@ export const AppProvider = ({ children }) => {
   };
 
   // Funciones de Ventas
-  // "products" es un arreglo de objetos: { productId, name, quantity, price, paymentMethod, channel, override }
   const addSale = async (saleData) => {
     if (!user) return;
     const salesRef = collection(db, "users", user.uid, "sales");
-    // Descontar stock para cada producto vendido
+
+    // Agrupar las ventas por productId para procesarlas acumuladamente.
+    const groupedSales = {};
     for (const item of saleData.products) {
-      const prodRef = doc(db, "users", user.uid, "inventory", item.productId);
-      await updateDoc(prodRef, {
-        stock: increment(-item.quantity)
-      });
+      if (!groupedSales[item.productId]) {
+        groupedSales[item.productId] = [];
+      }
+      groupedSales[item.productId].push(item);
+    }
+
+    // Para cada producto, actualizar las variantes restando la cantidad vendida
+    for (const productId in groupedSales) {
+      const saleItems = groupedSales[productId];
+      const prodRef = doc(db, "users", user.uid, "inventory", productId);
+      const product = inventory.find(p => p.id === productId);
+      if (product) {
+        let updatedVariants = product.variants.map(v => ({ ...v }));
+        for (const saleItem of saleItems) {
+          updatedVariants = updatedVariants.map(variant => {
+            if (
+              variant.size.toLowerCase() === saleItem.variant.size.toLowerCase() &&
+              variant.color.toLowerCase() === saleItem.variant.color.toLowerCase()
+            ) {
+              return { ...variant, stock: variant.stock - saleItem.quantity };
+            }
+            return variant;
+          });
+        }
+        const overallStock = updatedVariants.reduce((sum, v) => sum + v.stock, 0);
+        await updateDoc(prodRef, {
+          variants: updatedVariants,
+          stock: overallStock
+        });
+      }
     }
     await addDoc(salesRef, {
       ...saleData,
@@ -134,28 +169,92 @@ export const AppProvider = ({ children }) => {
     });
   };
 
-  // Función para editar venta (revertir stock anterior y aplicar nuevos cambios)
   const editSale = async (saleId, updatedSale, originalSale) => {
     if (!user) return;
     const saleRef = doc(db, "users", user.uid, "sales", saleId);
     // Reintegra stock de la venta original
     for (const orig of originalSale.products) {
       const prodRef = doc(db, "users", user.uid, "inventory", orig.productId);
-      await updateDoc(prodRef, {
-        stock: increment(orig.quantity)
-      });
+      const product = inventory.find(p => p.id === orig.productId);
+      if (product) {
+        let updatedVariants = product.variants.map(v => ({ ...v }));
+        updatedVariants = updatedVariants.map(variant => {
+          if (
+            variant.size.toLowerCase() === orig.variant.size.toLowerCase() &&
+            variant.color.toLowerCase() === orig.variant.color.toLowerCase()
+          ) {
+            return { ...variant, stock: variant.stock + orig.quantity };
+          }
+          return variant;
+        });
+        const overallStock = updatedVariants.reduce((sum, v) => sum + v.stock, 0);
+        await updateDoc(prodRef, { variants: updatedVariants, stock: overallStock });
+      }
     }
     // Descuenta stock según la venta actualizada
     for (const item of updatedSale.products) {
       const prodRef = doc(db, "users", user.uid, "inventory", item.productId);
-      await updateDoc(prodRef, {
-        stock: increment(-item.quantity)
-      });
+      const product = inventory.find(p => p.id === item.productId);
+      if (product) {
+        let updatedVariants = product.variants.map(v => ({ ...v }));
+        updatedVariants = updatedVariants.map(variant => {
+          if (
+            variant.size.toLowerCase() === item.variant.size.toLowerCase() &&
+            variant.color.toLowerCase() === item.variant.color.toLowerCase()
+          ) {
+            return { ...variant, stock: variant.stock - item.quantity };
+          }
+          return variant;
+        });
+        const overallStock = updatedVariants.reduce((sum, v) => sum + v.stock, 0);
+        await updateDoc(prodRef, { variants: updatedVariants, stock: overallStock });
+      }
     }
     await updateDoc(saleRef, {
       ...updatedSale,
       date: new Date().toISOString()
     });
+  };
+
+  // Función para eliminar venta con reintegro a las variantes específicas
+  const deleteSale = async (saleId, saleData) => {
+    if (!user) return;
+    // Agrupar los ítems de la venta por productId
+    const groupedSales = {};
+    for (const item of saleData.products) {
+      if (!groupedSales[item.productId]) {
+        groupedSales[item.productId] = [];
+      }
+      groupedSales[item.productId].push(item);
+    }
+    // Para cada producto, actualizar las variantes aumentando el stock de la variante vendida
+    for (const productId in groupedSales) {
+      const saleItems = groupedSales[productId];
+      const prodRef = doc(db, "users", user.uid, "inventory", productId);
+      const product = inventory.find(p => p.id === productId);
+      if (product) {
+        let updatedVariants = product.variants.map(v => ({ ...v }));
+        for (const saleItem of saleItems) {
+          updatedVariants = updatedVariants.map(variant => {
+            if (
+              variant.size.toLowerCase() === saleItem.variant.size.toLowerCase() &&
+              variant.color.toLowerCase() === saleItem.variant.color.toLowerCase()
+            ) {
+              return { ...variant, stock: variant.stock + saleItem.quantity };
+            }
+            return variant;
+          });
+        }
+        const overallStock = updatedVariants.reduce((sum, v) => sum + v.stock, 0);
+        await updateDoc(prodRef, {
+          variants: updatedVariants,
+          stock: overallStock
+        });
+      }
+    }
+    // Finalmente, elimina la venta
+    const saleRef = doc(db, "users", user.uid, "sales", saleId);
+    await deleteDoc(saleRef);
   };
 
   return (
@@ -171,7 +270,8 @@ export const AppProvider = ({ children }) => {
       updateProduct,
       addSale,
       editSale,
-      deleteProduct
+      deleteProduct,
+      deleteSale
     }}>
       {children}
     </AppContext.Provider>

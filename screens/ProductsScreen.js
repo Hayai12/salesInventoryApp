@@ -6,9 +6,7 @@ import {
   Modal, 
   TouchableWithoutFeedback, 
   Keyboard, 
-  KeyboardAvoidingView, 
   ScrollView, 
-  Platform,
   FlatList
 } from 'react-native';
 import { TextInput, Button, Menu, Card, Text } from 'react-native-paper';
@@ -30,6 +28,9 @@ export default function ProductsScreen() {
   // Campo categoría (por ahora solo "Ropa")
   const [category, setCategory] = useState('Ropa');
   const [menuVisible, setMenuVisible] = useState(false);
+
+  // Estado para prevenir múltiples envíos
+  const [isSubmitting, setIsSubmitting] = useState(false);
   
   const openMenu = () => setMenuVisible(true);
   const closeMenu = () => setMenuVisible(false);
@@ -44,8 +45,9 @@ export default function ProductsScreen() {
     setEditingProduct(null);
   };
   
-  // Agrega o actualiza un producto; al editar, preserva las variantes actuales
+  // Agrega o actualiza un producto; al editar, se conservan las variantes actuales
   const handleAddOrUpdateProduct = async () => {
+    if (isSubmitting) return; // Evita envíos múltiples
     if (
       productName.trim() === '' ||
       costPrice.trim() === '' ||
@@ -55,6 +57,8 @@ export default function ProductsScreen() {
       Alert.alert("Error", "Debe ingresar todos los datos del producto");
       return;
     }
+    
+    setIsSubmitting(true);
   
     const newProduct = {
       name: productName.trim(),
@@ -76,6 +80,8 @@ export default function ProductsScreen() {
       setModalVisible(false);
     } catch (error) {
       Alert.alert("Error", error.message);
+    } finally {
+      setIsSubmitting(false);
     }
   };
   
@@ -146,9 +152,8 @@ export default function ProductsScreen() {
         onRequestClose={() => { setModalVisible(false); resetForm(); }}
       >
         <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-            <ScrollView contentContainerStyle={styles.modalOverlay}>
-              {/* Campo de Categoría */}
-              <View style={styles.modalContent}>
+          <ScrollView contentContainerStyle={styles.modalOverlay}>
+            <View style={styles.modalContent}>
               <Menu
                 visible={menuVisible}
                 onDismiss={closeMenu}
@@ -169,7 +174,6 @@ export default function ProductsScreen() {
                 <Menu.Item onPress={() => { setCategory('Ropa'); closeMenu(); }} title="Ropa" />
               </Menu>
   
-              {/* Campos generales del producto */}
               <TextInput
                 label="Nombre del Producto"
                 value={productName}
@@ -213,12 +217,12 @@ export default function ProductsScreen() {
                 <Button onPress={() => { setModalVisible(false); resetForm(); }}>
                   Cancelar
                 </Button>
-                <Button onPress={handleAddOrUpdateProduct}>
+                <Button onPress={handleAddOrUpdateProduct} disabled={isSubmitting}>
                   {editingProduct ? "Actualizar" : "Agregar"}
                 </Button>
               </View>
-              </View>
-            </ScrollView>
+            </View>
+          </ScrollView>
         </TouchableWithoutFeedback>
       </Modal>
   
