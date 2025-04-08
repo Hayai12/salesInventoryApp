@@ -1,23 +1,29 @@
 import React, { useState, useContext } from 'react';
-import { View, FlatList, StyleSheet, Alert } from 'react-native';
-import { Text, TextInput, Button, Card, Portal, Dialog, Menu } from 'react-native-paper';
+import { 
+  View, 
+  FlatList, 
+  StyleSheet, 
+  Alert, 
+  Keyboard, 
+  LayoutAnimation 
+} from 'react-native';
+import { Text, TextInput, Button, Card, Menu } from 'react-native-paper';
 import { AppContext } from '../context/AppContext';
 
 export default function InventoryScreen() {
   const { inventory, updateProduct } = useContext(AppContext);
 
-  // Estado para el producto seleccionado al editar/agregar variantes
+  // Estado para el producto seleccionado para edición inline de variantes
   const [selectedProduct, setSelectedProduct] = useState(null);
-
-  // Estados para el diálogo de edición de variantes
-  const [editVariantsDialogVisible, setEditVariantsDialogVisible] = useState(false);
+  // Copia local de las variantes para editar
   const [editedVariants, setEditedVariants] = useState([]);
-
-  // Estados para el diálogo de agregar variante
-  const [addVariantDialogVisible, setAddVariantDialogVisible] = useState(false);
+  // Estado para mostrar el formulario inline de agregar variante
+  const [newVariantFormVisible, setNewVariantFormVisible] = useState(false);
+  // Estados para la nueva variante
   const [newVariantStock, setNewVariantStock] = useState("");
   const [newVariantSize, setNewVariantSize] = useState("M");
   const [newVariantColor, setNewVariantColor] = useState("Negro");
+  // Estados para los Menús de selección
   const [newSizeMenuVisible, setNewSizeMenuVisible] = useState(false);
   const [newColorMenuVisible, setNewColorMenuVisible] = useState(false);
 
@@ -25,27 +31,32 @@ export default function InventoryScreen() {
   const sizeOptions = ["XS", "S", "M", "L", "XL"];
   const colorOptions = ["Rojo", "Verde", "Azul", "Negro", "Blanco"];
 
-  // Abrir diálogo para editar variantes (se hace una copia local de las variantes existentes)
-  const openEditVariantsDialog = (product) => {
+  // Abre el editor inline para un producto y carga sus variantes
+  const openInlineEditor = (product) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setSelectedProduct(product);
     setEditedVariants(
       product.variants
         ? product.variants.map(v => ({ ...v, stock: v.stock.toString() }))
         : []
     );
-    setEditVariantsDialogVisible(true);
+    setNewVariantFormVisible(false);
   };
 
-  const closeEditVariantsDialog = () => {
-    setEditVariantsDialogVisible(false);
+  // Cierra el editor inline y resetea estados
+  const closeInlineEditor = () => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setSelectedProduct(null);
     setEditedVariants([]);
+    setNewVariantFormVisible(false);
+    setNewVariantStock("");
+    setNewVariantSize("M");
+    setNewVariantColor("Negro");
   };
 
-  // Guarda las modificaciones en las variantes y actualiza el stock total
+  // Guarda las modificaciones de las variantes y actualiza el stock total
   const handleSaveVariants = async () => {
     if (!selectedProduct) return;
-    // Se valida y se convierte el stock de cada variante a número
     const updatedVariants = editedVariants.map(v => ({
       size: v.size,
       color: v.color,
@@ -57,27 +68,13 @@ export default function InventoryScreen() {
         variants: updatedVariants,
         stock: overallStock
       });
-      closeEditVariantsDialog();
+      closeInlineEditor();
     } catch (error) {
       Alert.alert("Error", error.message);
     }
   };
 
-  // Abrir diálogo para agregar una nueva variante
-  const openAddVariantDialog = (product) => {
-    setSelectedProduct(product);
-    setNewVariantSize("M");
-    setNewVariantColor("Negro");
-    setNewVariantStock("");
-    setAddVariantDialogVisible(true);
-  };
-
-  const closeAddVariantDialog = () => {
-    setAddVariantDialogVisible(false);
-    setSelectedProduct(null);
-  };
-
-  // Valida que no exista una variante duplicada y actualiza el producto con la nueva variante
+  // Agrega una nueva variante al producto seleccionado
   const handleAddVariant = async () => {
     if (!selectedProduct) return;
     if (newVariantStock.trim() === '' || isNaN(newVariantStock)) {
@@ -106,52 +103,44 @@ export default function InventoryScreen() {
         variants: updatedVariants,
         stock: overallStock
       });
-      closeAddVariantDialog();
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+      // Actualiza la copia local para edición
+      setEditedVariants(updatedVariants.map(v => ({ ...v, stock: v.stock.toString() })));
+      // Reinicia los campos de la nueva variante
+      setNewVariantStock("");
+      setNewVariantSize("M");
+      setNewVariantColor("Negro");
+      setNewVariantFormVisible(false);
     } catch (error) {
       Alert.alert("Error", error.message);
     }
   };
 
-  return (
-    <View style={styles.container}>
-      <FlatList
-        data={inventory}
-        keyExtractor={(item) => item.id}
-        renderItem={({ item }) => (
-          <Card style={styles.card}>
-            <Card.Title title={item.name} subtitle={`Stock total: ${item.stock || 0}`} />
-            <Card.Content>
-              <Text>Costo: ${(item.costPrice !== undefined ? item.costPrice : 0).toFixed(2)}</Text>
-              <Text>Venta: ${(item.salePrice !== undefined ? item.salePrice : 0).toFixed(2)}</Text>
-              <Text>Marca: {item.brand}</Text>
-              {item.variants && item.variants.length > 0 ? (
-                <View style={styles.variantsContainer}>
-                  <Text>Variantes ({item.variants.length}):</Text>
-                  {item.variants.map((variant, index) => (
-                    <Text key={index}>
-                      Talla: {variant.size}, Color: {variant.color}, Stock: {variant.stock}
-                    </Text>
-                  ))}
-                </View>
-              ) : (
-                <Text>Sin variantes</Text>
-              )}
-            </Card.Content>
-            <Card.Actions>
-              <Button onPress={() => openEditVariantsDialog(item)}>Editar Variantes</Button>
-              <Button onPress={() => openAddVariantDialog(item)}>Agregar Variante</Button>
-            </Card.Actions>
-          </Card>
+  // Renderiza cada producto en un Card, mostrando un editor inline si el producto está seleccionado
+  const renderProduct = ({ item }) => (
+    <Card style={styles.card}>
+      <Card.Title title={item.name} subtitle={`Stock total: ${item.stock || 0}`} />
+      <Card.Content>
+        <Text>Costo: ${(item.costPrice !== undefined ? item.costPrice : 0).toFixed(2)}</Text>
+        <Text>Venta: ${(item.salePrice !== undefined ? item.salePrice : 0).toFixed(2)}</Text>
+        <Text>Marca: {item.brand}</Text>
+        {item.variants && item.variants.length > 0 ? (
+          <View style={styles.variantsContainer}>
+            <Text>Variantes ({item.variants.length}):</Text>
+            {item.variants.map((variant, index) => (
+              <Text key={index}>
+                Talla: {variant.size}, Color: {variant.color}, Stock: {variant.stock}
+              </Text>
+            ))}
+          </View>
+        ) : (
+          <Text>Sin variantes</Text>
         )}
-        ListEmptyComponent={<Text style={styles.empty}>No hay productos en el inventario.</Text>}
-        contentContainerStyle={styles.listContainer}
-      />
-
-      {/* Diálogo para editar variantes */}
-      <Portal>
-        <Dialog visible={editVariantsDialogVisible} onDismiss={closeEditVariantsDialog}>
-          <Dialog.Title>Editar Variantes</Dialog.Title>
-          <Dialog.Content>
+        
+        {/* Editor inline para el producto seleccionado */}
+        {selectedProduct && selectedProduct.id === item.id && (
+          <View style={styles.inlineEditor}>
+            <Text style={styles.sectionTitle}>Editar Variantes</Text>
             {editedVariants.map((variant, index) => (
               <View key={index} style={styles.variantRow}>
                 <Text style={styles.variantText}>
@@ -162,6 +151,9 @@ export default function InventoryScreen() {
                   label="Stock"
                   value={variant.stock}
                   keyboardType="numeric"
+                  returnKeyType="done"
+                  blurOnSubmit={true}
+                  onSubmitEditing={Keyboard.dismiss}
                   onChangeText={(value) => {
                     const newVariants = [...editedVariants];
                     newVariants[index].stock = value;
@@ -170,89 +162,115 @@ export default function InventoryScreen() {
                 />
               </View>
             ))}
-          </Dialog.Content>
-          <Dialog.Actions>
-            <Button onPress={closeEditVariantsDialog}>Cancelar</Button>
-            <Button onPress={handleSaveVariants}>Guardar</Button>
-          </Dialog.Actions>
-        </Dialog>
-      </Portal>
+            <Button onPress={handleSaveVariants}>Guardar cambios</Button>
+            <Button onPress={closeInlineEditor}>Cerrar edición</Button>
 
-      {/* Diálogo para agregar una nueva variante */}
-      <Portal>
-        <Dialog visible={addVariantDialogVisible} onDismiss={closeAddVariantDialog}>
-          <Dialog.Title>Agregar Variante</Dialog.Title>
-          <Dialog.Content>
-            {/* Selector de Talla */}
-            <Menu
-              visible={newSizeMenuVisible}
-              onDismiss={() => setNewSizeMenuVisible(false)}
-              anchor={
-                <Button
-                  mode="outlined"
-                  onPress={() => setNewSizeMenuVisible(true)}
-                  style={styles.menuButton}
+            {/* Formulario inline para agregar nueva variante */}
+            <Button onPress={() => setNewVariantFormVisible(!newVariantFormVisible)}>
+              {newVariantFormVisible ? "Cancelar agregar variante" : "Agregar Variante"}
+            </Button>
+            {newVariantFormVisible && (
+              <View style={styles.newVariantContainer}>
+                <Text style={styles.sectionTitle}>Nueva Variante</Text>
+                {/* Selector de Talla */}
+                <Menu
+                  visible={newSizeMenuVisible}
+                  onDismiss={() => setNewSizeMenuVisible(false)}
+                  anchor={
+                    <Button
+                      mode="outlined"
+                      onPress={() => setNewSizeMenuVisible(true)}
+                      style={styles.menuButton}
+                    >
+                      {newVariantSize}
+                    </Button>
+                  }
                 >
-                  {newVariantSize}
-                </Button>
-              }
-            >
-              {sizeOptions.map((size) => (
-                <Menu.Item
-                  key={size}
-                  onPress={() => {
-                    setNewVariantSize(size);
-                    setNewSizeMenuVisible(false);
-                  }}
-                  title={size}
-                />
-              ))}
-            </Menu>
-
-            {/* Selector de Color */}
-            <Menu
-              visible={newColorMenuVisible}
-              onDismiss={() => setNewColorMenuVisible(false)}
-              anchor={
-                <Button
-                  mode="outlined"
-                  onPress={() => setNewColorMenuVisible(true)}
-                  style={styles.menuButton}
+                  {sizeOptions.map((size) => (
+                    <Menu.Item
+                      key={size}
+                      onPress={() => {
+                        setNewVariantSize(size);
+                        setNewSizeMenuVisible(false);
+                      }}
+                      title={size}
+                    />
+                  ))}
+                </Menu>
+                {/* Selector de Color */}
+                <Menu
+                  visible={newColorMenuVisible}
+                  onDismiss={() => setNewColorMenuVisible(false)}
+                  anchor={
+                    <Button
+                      mode="outlined"
+                      onPress={() => setNewColorMenuVisible(true)}
+                      style={styles.menuButton}
+                    >
+                      {newVariantColor}
+                    </Button>
+                  }
                 >
-                  {newVariantColor}
-                </Button>
-              }
-            >
-              {colorOptions.map((color) => (
-                <Menu.Item
-                  key={color}
-                  onPress={() => {
-                    setNewVariantColor(color);
-                    setNewColorMenuVisible(false);
-                  }}
-                  title={color}
+                  {colorOptions.map((color) => (
+                    <Menu.Item
+                      key={color}
+                      onPress={() => {
+                        setNewVariantColor(color);
+                        setNewColorMenuVisible(false);
+                      }}
+                      title={color}
+                    />
+                  ))}
+                </Menu>
+                <TextInput
+                  label="Stock"
+                  value={newVariantStock}
+                  onChangeText={setNewVariantStock}
+                  keyboardType="numeric"
+                  returnKeyType="done"
+                  blurOnSubmit={true}
+                  onSubmitEditing={Keyboard.dismiss}
+                  style={styles.input}
                 />
-              ))}
-            </Menu>
+                <Button onPress={handleAddVariant}>Agregar</Button>
+              </View>
+            )}
+          </View>
+        )}
+      </Card.Content>
+      <Card.Actions>
+        {(!selectedProduct || selectedProduct.id !== item.id) && (
+          <>
+            <Button onPress={() => openInlineEditor(item)}>
+              Editar Variantes
+            </Button>
+            <Button
+              onPress={() => {
+                openInlineEditor(item);
+                setNewVariantFormVisible(true);
+              }}
+            >
+              Agregar Variante
+            </Button>
+          </>
+        )}
+      </Card.Actions>
+    </Card>
+  );
 
-            <TextInput
-              label="Stock"
-              value={newVariantStock}
-              onChangeText={setNewVariantStock}
-              keyboardType="numeric"
-              style={styles.input}
-            />
-          </Dialog.Content>
-          <Dialog.Actions>
-            <Button onPress={closeAddVariantDialog}>Cancelar</Button>
-            <Button onPress={handleAddVariant}>Agregar</Button>
-          </Dialog.Actions>
-        </Dialog>
-      </Portal>
+  return (
+    <View style={styles.container}>
+      <FlatList
+        data={inventory}
+        keyExtractor={(item) => item.id}
+        renderItem={renderProduct}
+        ListEmptyComponent={<Text style={styles.empty}>No hay productos en el inventario.</Text>}
+        contentContainerStyle={styles.listContainer}
+      />
     </View>
   );
 }
-
+  
 const styles = StyleSheet.create({
   container: { 
     flex: 1, 
@@ -272,6 +290,16 @@ const styles = StyleSheet.create({
   variantsContainer: { 
     marginTop: 10 
   },
+  inlineEditor: {
+    marginTop: 15,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderColor: '#ccc'
+  },
+  sectionTitle: {
+    fontWeight: 'bold',
+    marginBottom: 10
+  },
   variantRow: { 
     flexDirection: 'row', 
     alignItems: 'center', 
@@ -289,6 +317,11 @@ const styles = StyleSheet.create({
   },
   menuButton: { 
     marginBottom: 10 
+  },
+  newVariantContainer: {
+    marginTop: 15,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderColor: '#ccc'
   }
 });
-

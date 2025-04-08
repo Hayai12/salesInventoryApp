@@ -3,20 +3,27 @@ import {
   View, 
   StyleSheet, 
   Alert, 
-  Modal, 
-  TouchableWithoutFeedback, 
   Keyboard, 
-  ScrollView, 
-  FlatList
+  FlatList, 
+  TouchableWithoutFeedback, 
+  LayoutAnimation, 
+  UIManager, 
+  Platform 
 } from 'react-native';
-import { TextInput, Button, Menu, Card, Text } from 'react-native-paper';
+import { TextInput, Button, Menu, Card, Text, IconButton } from 'react-native-paper';
 import { AppContext } from '../context/AppContext';
+
+// Habilita animaciones en Android
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
 export default function ProductsScreen() {
   const { addProduct, updateProduct, deleteProduct, inventory } = useContext(AppContext);
   
-  // Estado para mostrar el modal y para el modo edición
-  const [modalVisible, setModalVisible] = useState(false);
+  // Estado para mostrar/ocultar el formulario inline
+  const [formVisible, setFormVisible] = useState(false);
+  // Para saber si se está editando un producto o se está agregando uno nuevo
   const [editingProduct, setEditingProduct] = useState(null);
   
   // Campos del formulario
@@ -24,16 +31,22 @@ export default function ProductsScreen() {
   const [costPrice, setCostPrice] = useState('');
   const [salePrice, setSalePrice] = useState('');
   const [brand, setBrand] = useState('');
-  
-  // Campo categoría (por ahora solo "Ropa")
   const [category, setCategory] = useState('Ropa');
   const [menuVisible, setMenuVisible] = useState(false);
-
+  
   // Estado para prevenir múltiples envíos
   const [isSubmitting, setIsSubmitting] = useState(false);
   
-  const openMenu = () => setMenuVisible(true);
-  const closeMenu = () => setMenuVisible(false);
+  // Alterna la visibilidad del formulario con animación
+  const toggleFormVisibility = () => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    if(formVisible){
+      resetForm();
+      setFormVisible(false);
+    } else {
+      setFormVisible(true);
+    }
+  };
   
   // Reinicia los campos del formulario y el modo edición
   const resetForm = () => {
@@ -45,7 +58,10 @@ export default function ProductsScreen() {
     setEditingProduct(null);
   };
   
-  // Agrega o actualiza un producto; al editar, se conservan las variantes actuales
+  const openMenu = () => setMenuVisible(true);
+  const closeMenu = () => setMenuVisible(false);
+  
+  // Agrega o actualiza un producto; se conservan las variantes al editar
   const handleAddOrUpdateProduct = async () => {
     if (isSubmitting) return; // Evita envíos múltiples
     if (
@@ -66,7 +82,7 @@ export default function ProductsScreen() {
       salePrice: parseFloat(salePrice),
       brand: brand.trim(),
       category,
-      // Si se está editando, se conservan las variantes; si es nuevo, se inicializa a vacío
+      // Conserva variantes si se está editando; si es nuevo, se inicializa a vacío
       variants: editingProduct ? editingProduct.variants : []
     };
   
@@ -77,7 +93,7 @@ export default function ProductsScreen() {
         await addProduct(newProduct);
       }
       resetForm();
-      setModalVisible(false);
+      setFormVisible(false);
     } catch (error) {
       Alert.alert("Error", error.message);
     } finally {
@@ -85,7 +101,7 @@ export default function ProductsScreen() {
     }
   };
   
-  // Prepara el formulario para edición
+  // Prepara el formulario para edición y lo muestra inline
   const handleEditProduct = (product) => {
     setProductName(product.name);
     setCostPrice(product.costPrice ? product.costPrice.toString() : '');
@@ -93,7 +109,9 @@ export default function ProductsScreen() {
     setBrand(product.brand);
     setCategory(product.category || 'Ropa');
     setEditingProduct(product);
-    setModalVisible(true);
+    if (!formVisible) {
+      setFormVisible(true);
+    }
   };
   
   // Elimina el producto luego de confirmar
@@ -118,113 +136,107 @@ export default function ProductsScreen() {
     );
   };
   
-  // Renderiza cada producto en un Card básico
+  // Renderiza cada producto en un Card con íconos de acción
   const renderProduct = ({ item }) => (
     <Card style={styles.card}>
-      <Card.Title title={item.name} subtitle={`${item.brand} - ${item.category}`} />
+      <Card.Title 
+        title={item.name} 
+        subtitle={`${item.brand} - ${item.category}`} 
+        right={(props) => (
+          <>
+            <IconButton {...props} icon="pencil" onPress={() => handleEditProduct(item)} />
+            <IconButton {...props} icon="delete" onPress={() => handleDeleteProduct(item)} />
+          </>
+        )}
+      />
       <Card.Content>
         <Text>Costo: ${item.costPrice ? item.costPrice.toFixed(2) : '0.00'}</Text>
         <Text>Venta: ${item.salePrice ? item.salePrice.toFixed(2) : '0.00'}</Text>
       </Card.Content>
-      <Card.Actions>
-        <Button onPress={() => handleEditProduct(item)}>Editar</Button>
-        <Button onPress={() => handleDeleteProduct(item)} color="red">
-          Eliminar
-        </Button>
-      </Card.Actions>
     </Card>
   );
   
   return (
     <View style={styles.container}>
+      {/* Botón para mostrar/ocultar el formulario inline */}
       <Button
         mode="contained"
-        onPress={() => { resetForm(); setModalVisible(true); }}
+        onPress={toggleFormVisibility}
         style={styles.addButton}
       >
-        Agregar Producto
+        {formVisible ? "Cerrar Formulario" : "Agregar Producto"}
       </Button>
   
-      <Modal
-        visible={modalVisible}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={() => { setModalVisible(false); resetForm(); }}
-      >
-        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-          <ScrollView contentContainerStyle={styles.modalOverlay}>
-            <View style={styles.modalContent}>
-              <Menu
-                visible={menuVisible}
-                onDismiss={closeMenu}
-                anchor={
-                  <TouchableWithoutFeedback onPress={openMenu}>
-                    <View pointerEvents="none">
-                      <TextInput
-                        label="Categoría"
-                        value={category}
-                        style={styles.input}
-                        editable={false}
-                        right={<TextInput.Icon name="menu-down" />}
-                      />
-                    </View>
-                  </TouchableWithoutFeedback>
-                }
-              >
-                <Menu.Item onPress={() => { setCategory('Ropa'); closeMenu(); }} title="Ropa" />
-              </Menu>
+      {formVisible && (
+        <Card style={styles.formCard}>
+          <Card.Content>
+            {/* Selector de Categoría integrado con Menu */}
+            <Menu
+              visible={menuVisible}
+              onDismiss={closeMenu}
+              anchor={
+                <TouchableWithoutFeedback onPress={openMenu}>
+                  <View pointerEvents="none">
+                    <TextInput
+                      label="Categoría"
+                      value={category}
+                      style={styles.input}
+                      editable={false}
+                      right={<TextInput.Icon name="menu-down" />}
+                    />
+                  </View>
+                </TouchableWithoutFeedback>
+              }
+            >
+              <Menu.Item onPress={() => { setCategory('Ropa'); closeMenu(); }} title="Ropa" />
+            </Menu>
   
-              <TextInput
-                label="Nombre del Producto"
-                value={productName}
-                onChangeText={setProductName}
-                style={styles.input}
-                returnKeyType="done"
-                blurOnSubmit
-                onSubmitEditing={Keyboard.dismiss}
-              />
-              <TextInput
-                label="Costo Unitario"
-                value={costPrice}
-                onChangeText={setCostPrice}
-                keyboardType="numeric"
-                style={styles.input}
-                returnKeyType="done"
-                blurOnSubmit
-                onSubmitEditing={Keyboard.dismiss}
-              />
-              <TextInput
-                label="Precio de Venta"
-                value={salePrice}
-                onChangeText={setSalePrice}
-                keyboardType="numeric"
-                style={styles.input}
-                returnKeyType="done"
-                blurOnSubmit
-                onSubmitEditing={Keyboard.dismiss}
-              />
-              <TextInput
-                label="Marca"
-                value={brand}
-                onChangeText={setBrand}
-                style={styles.input}
-                returnKeyType="done"
-                blurOnSubmit
-                onSubmitEditing={Keyboard.dismiss}
-              />
+            <TextInput
+              label="Nombre del Producto"
+              value={productName}
+              onChangeText={setProductName}
+              style={styles.input}
+              returnKeyType="done"
+              onSubmitEditing={Keyboard.dismiss}
+            />
+            <TextInput
+              label="Costo Unitario"
+              value={costPrice}
+              onChangeText={setCostPrice}
+              keyboardType="numeric"
+              style={styles.input}
+              returnKeyType="done"
+              onSubmitEditing={Keyboard.dismiss}
+            />
+            <TextInput
+              label="Precio de Venta"
+              value={salePrice}
+              onChangeText={setSalePrice}
+              keyboardType="numeric"
+              style={styles.input}
+              returnKeyType="done"
+              onSubmitEditing={Keyboard.dismiss}
+            />
+            <TextInput
+              label="Marca"
+              value={brand}
+              onChangeText={setBrand}
+              style={styles.input}
+              returnKeyType="done"
+              onSubmitEditing={Keyboard.dismiss}
+            />
   
-              <View style={styles.buttonContainer}>
-                <Button onPress={() => { setModalVisible(false); resetForm(); }}>
-                  Cancelar
-                </Button>
-                <Button onPress={handleAddOrUpdateProduct} disabled={isSubmitting}>
-                  {editingProduct ? "Actualizar" : "Agregar"}
-                </Button>
-              </View>
+            <View style={styles.buttonContainer}>
+              <Button onPress={toggleFormVisibility}>
+                Cancelar
+              </Button>
+              <Button onPress={handleAddOrUpdateProduct} disabled={isSubmitting}>
+                {editingProduct ? "Actualizar" : "Agregar"}
+              </Button>
             </View>
-          </ScrollView>
-        </TouchableWithoutFeedback>
-      </Modal>
+          </Card.Content>
+        </Card>
+      )}
   
       <FlatList
         data={inventory}
@@ -246,21 +258,13 @@ const styles = StyleSheet.create({
   addButton: { 
     marginBottom: 10 
   },
+  formCard: {
+    marginBottom: 20,
+    borderRadius: 8,
+    elevation: 3,
+  },
   input: { 
     marginBottom: 10 
-  },
-  modalOverlay: { 
-    flex: 1, 
-    backgroundColor: 'rgba(0,0,0,0.3)', 
-    justifyContent: 'center', 
-    paddingHorizontal: 20
-  },
-  modalContent: { 
-    width: '100%',
-    maxWidth: 400,
-    backgroundColor: '#fff', 
-    padding: 20, 
-    borderRadius: 8
   },
   buttonContainer: { 
     flexDirection: 'row', 

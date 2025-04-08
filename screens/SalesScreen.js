@@ -1,12 +1,22 @@
 import React, { useState, useContext, useEffect } from 'react';
-import { FlatList, StyleSheet, View, ScrollView, Alert, Modal as RNModal } from 'react-native';
+import { 
+  FlatList, 
+  StyleSheet, 
+  View, 
+  ScrollView, 
+  Alert, 
+  Keyboard, 
+  LayoutAnimation, 
+  TouchableOpacity 
+} from 'react-native';
 import {
   Text,
   TextInput,
   Button,
   Card,
   RadioButton,
-  Provider as PaperProvider
+  Provider as PaperProvider,
+  Menu
 } from 'react-native-paper';
 import { AppContext } from '../context/AppContext';
 
@@ -41,6 +51,7 @@ const SaleItem = React.memo(({ item, updateSaleItem, toggleProductOverride }) =>
   const handleQuantityBlur = () => {
     const newQuantity = parseInt(localQuantity) || 0;
     if (newQuantity !== item.quantity) {
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
       updateSaleItem(item.productId, item.variant, 'quantity', newQuantity);
     }
   };
@@ -48,6 +59,7 @@ const SaleItem = React.memo(({ item, updateSaleItem, toggleProductOverride }) =>
   const handlePriceBlur = () => {
     const newPrice = parseFloat(localPrice) || 0;
     if (newPrice !== item.price) {
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
       updateSaleItem(item.productId, item.variant, 'price', newPrice);
     }
   };
@@ -65,6 +77,9 @@ const SaleItem = React.memo(({ item, updateSaleItem, toggleProductOverride }) =>
             onChangeText={handleQuantityChange}
             onBlur={handleQuantityBlur}
             keyboardType="numeric"
+            returnKeyType="done"
+            blurOnSubmit={true}
+            onSubmitEditing={Keyboard.dismiss}
             style={[styles.input, styles.inputSmall]}
           />
           <TextInput
@@ -73,6 +88,9 @@ const SaleItem = React.memo(({ item, updateSaleItem, toggleProductOverride }) =>
             onChangeText={handlePriceChange}
             onBlur={handlePriceBlur}
             keyboardType="numeric"
+            returnKeyType="done"
+            blurOnSubmit={true}
+            onSubmitEditing={Keyboard.dismiss}
             style={[styles.input, styles.inputSmall]}
           />
         </View>
@@ -119,15 +137,18 @@ const SaleItem = React.memo(({ item, updateSaleItem, toggleProductOverride }) =>
 export default function SalesScreen({ navigation }) {
   const { inventory, sales, addSale, editSale, deleteSale } = useContext(AppContext);
 
-  // Estados y lógica de la pantalla (modales, edición, etc.)
+  // Estados para la venta
   const [saleProducts, setSaleProducts] = useState([]);
   const [editingSale, setEditingSale] = useState(null);
-  const [modalVisible, setModalVisible] = useState(false);
+  // Control de búsqueda y selección inline
+  const [showProductSearch, setShowProductSearch] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [variantSelectionModalVisible, setVariantSelectionModalVisible] = useState(false);
   const [selectedProductForSale, setSelectedProductForSale] = useState(null);
+  // Estados por defecto para pago y canal
   const [defaultPaymentMethod, setDefaultPaymentMethod] = useState("Efectivo");
   const [defaultChannel, setDefaultChannel] = useState("Local");
+  // Estado para manejar la expansión de cada venta (accordion)
+  const [expandedSaleId, setExpandedSaleId] = useState(null);
 
   useEffect(() => {
     if (editingSale) {
@@ -144,7 +165,7 @@ export default function SalesScreen({ navigation }) {
   const selectProduct = (product) => {
     if (product.variants && product.variants.length > 0) {
       setSelectedProductForSale(product);
-      setVariantSelectionModalVisible(true);
+      setShowProductSearch(false);
     } else {
       const exists = saleProducts.find(item => item.productId === product.id);
       if (!exists) {
@@ -162,7 +183,7 @@ export default function SalesScreen({ navigation }) {
           }
         ]);
       }
-      setModalVisible(false);
+      setShowProductSearch(false);
       setSearchTerm('');
     }
   };
@@ -190,40 +211,61 @@ export default function SalesScreen({ navigation }) {
         }
       ]);
     }
-    setVariantSelectionModalVisible(false);
-    setModalVisible(false);
-    setSearchTerm('');
     setSelectedProductForSale(null);
+    setSearchTerm('');
   };
 
   const updateSaleItem = (productId, variant, field, value) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setSaleProducts(
-      saleProducts.map(item =>
-        (item.productId === productId &&
-         item.variant &&
-         item.variant.size.toLowerCase() === variant.size.toLowerCase() &&
-         item.variant.color.toLowerCase() === variant.color.toLowerCase())
-          ? { ...item, [field]: value }
-          : item
-      )
+      saleProducts.map(item => {
+        if (item.productId === productId) {
+          if (variant) {
+            if (
+              item.variant &&
+              item.variant.size.toLowerCase() === variant.size.toLowerCase() &&
+              item.variant.color.toLowerCase() === variant.color.toLowerCase()
+            ) {
+              return { ...item, [field]: value };
+            }
+          } else if (!item.variant) {
+            return { ...item, [field]: value };
+          }
+        }
+        return item;
+      })
     );
   };
 
   const toggleProductOverride = (productId, variant) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setSaleProducts(
-      saleProducts.map(item =>
-        (item.productId === productId &&
-         item.variant &&
-         item.variant.size.toLowerCase() === variant.size.toLowerCase() &&
-         item.variant.color.toLowerCase() === variant.color.toLowerCase())
-          ? { 
+      saleProducts.map(item => {
+        if (item.productId === productId) {
+          if (variant) {
+            if (
+              item.variant &&
+              item.variant.size.toLowerCase() === variant.size.toLowerCase() &&
+              item.variant.color.toLowerCase() === variant.color.toLowerCase()
+            ) {
+              return { 
+                ...item, 
+                override: !item.override, 
+                paymentMethod: defaultPaymentMethod, 
+                channel: defaultChannel 
+              };
+            }
+          } else if (!item.variant) {
+            return { 
               ...item, 
               override: !item.override, 
               paymentMethod: defaultPaymentMethod, 
               channel: defaultChannel 
-            }
-          : item
-      )
+            };
+          }
+        }
+        return item;
+      })
     );
   };
 
@@ -243,11 +285,11 @@ export default function SalesScreen({ navigation }) {
         return;
       }
       const variant = prod.variants.find(v =>
-        (v.size || '').toLowerCase() === (item.variant.size || '').toLowerCase() &&
-        (v.color || '').toLowerCase() === (item.variant.color || '').toLowerCase()
+        (v.size || '').toLowerCase() === (item.variant?.size || '').toLowerCase() &&
+        (v.color || '').toLowerCase() === (item.variant?.color || '').toLowerCase()
       );
       if (!variant || variant.stock < item.quantity) {
-        Alert.alert("Error", `No hay suficiente stock para ${item.name} (${item.variant.size} - ${item.variant.color})`);
+        Alert.alert("Error", `No hay suficiente stock para ${item.name} ${item.variant ? `(${item.variant.size} - ${item.variant.color})` : ''}`);
         return;
       }
     }
@@ -304,6 +346,13 @@ export default function SalesScreen({ navigation }) {
     setSaleProducts([]);
   };
 
+  // Maneja la expansión/contracción de los detalles de una venta con animación
+  const toggleSaleExpansion = (saleId) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setExpandedSaleId(expandedSaleId === saleId ? null : saleId);
+  };
+
+  // Renderiza la cabecera que contiene el formulario para agregar/editar venta
   const renderHeader = () => (
     <View>
       <Card style={styles.card}>
@@ -320,9 +369,69 @@ export default function SalesScreen({ navigation }) {
             <RadioButton.Item label="Local" value="Local" />
             <RadioButton.Item label="Online" value="Online" />
           </RadioButton.Group>
-          <Button mode="outlined" onPress={() => setModalVisible(true)} style={styles.button}>
+          <Button mode="outlined" onPress={() => setShowProductSearch(true)} style={styles.button}>
             Seleccionar Producto
           </Button>
+          
+          {/* Buscador de productos inline */}
+          {showProductSearch && (
+            <View style={styles.inlineSearchContainer}>
+              <TextInput
+                label="Buscar producto"
+                value={searchTerm}
+                onChangeText={setSearchTerm}
+                returnKeyType="done"
+                blurOnSubmit={true}
+                onSubmitEditing={Keyboard.dismiss}
+                style={styles.input}
+              />
+              <FlatList
+                data={filteredInventory}
+                keyExtractor={(item) => item.id}
+                renderItem={({ item }) => (
+                  <Card style={styles.card}>
+                    <Card.Title
+                      title={item.name}
+                      subtitle={item.variants && item.variants.length > 0 ? `Variantes: ${item.variants.length}` : "Sin variantes"}
+                    />
+                    <Card.Actions>
+                      <Button onPress={() => selectProduct(item)}>Seleccionar</Button>
+                    </Card.Actions>
+                  </Card>
+                )}
+                ListEmptyComponent={<Text>No se encontraron productos.</Text>}
+              />
+              <Button mode="outlined" onPress={() => { setShowProductSearch(false); setSearchTerm(''); }} style={styles.cancelButton}>
+                Cancelar
+              </Button>
+            </View>
+          )}
+
+          {/* Selección de variante inline */}
+          {selectedProductForSale && (
+            <View style={styles.inlineSearchContainer}>
+              <Text style={styles.modalTitle}>
+                Selecciona la variante para {selectedProductForSale.name}
+              </Text>
+              <ScrollView keyboardShouldPersistTaps="handled">
+                {selectedProductForSale.variants.map((variant, index) => (
+                  <Card key={index} style={styles.card}>
+                    <Card.Title
+                      title={`Talla: ${variant.size} - Color: ${variant.color}`}
+                      subtitle={`Stock: ${variant.stock}`}
+                    />
+                    <Card.Actions>
+                      <Button onPress={() => handleVariantSelection(variant)}>Seleccionar</Button>
+                    </Card.Actions>
+                  </Card>
+                ))}
+              </ScrollView>
+              <Button mode="outlined" onPress={() => setSelectedProductForSale(null)} style={styles.cancelButton}>
+                Cancelar
+              </Button>
+            </View>
+          )}
+
           {saleProducts.map((item) => (
             <SaleItem
               key={item.id}
@@ -346,113 +455,53 @@ export default function SalesScreen({ navigation }) {
     </View>
   );
 
+  // Render del historial de ventas en un diseño más ordenado y con opción de expandir para ver detalles
+  const renderSaleItem = ({ item }) => {
+    const isExpanded = expandedSaleId === item.id;
+    return (
+      <Card style={styles.saleCard}>
+        <TouchableOpacity onPress={() => toggleSaleExpansion(item.id)}>
+          <Card.Title 
+            title={`Venta: $${item.total}`} 
+            subtitle={`Fecha: ${item.date}`} 
+          />
+        </TouchableOpacity>
+        {isExpanded && (
+          <Card.Content>
+            <Text style={styles.detailTitle}>Detalles de Venta:</Text>
+            {item.products.map(prod => (
+              <View key={prod.productId + (prod.variant ? `-${prod.variant.size}-${prod.variant.color}` : '')} style={styles.productRow}>
+                <Text style={styles.productName}>{prod.name}</Text>
+                {prod.variant && (
+                  <Text style={styles.variantInfo}>
+                    {`(${prod.variant.size} - ${prod.variant.color})`}
+                  </Text>
+                )}
+                <Text style={styles.detailText}>{`Cant: ${prod.quantity}`}</Text>
+                <Text style={styles.detailText}>{`Precio: $${prod.price}`}</Text>
+              </View>
+            ))}
+            <View style={styles.saleButtonsContainer}>
+              <Button mode="text" onPress={() => handleEditSale(item)}>
+                Editar
+              </Button>
+              <Button mode="text" onPress={() => handleDeleteSale(item)} color="red">
+                Eliminar
+              </Button>
+            </View>
+          </Card.Content>
+        )}
+      </Card>
+    );
+  };
+
   return (
     <PaperProvider>
-      {/* Modal para búsqueda de productos */}
-      <RNModal
-        visible={modalVisible}
-        transparent={true}
-        animationType="slide"
-        onRequestClose={() => setModalVisible(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContainer}>
-            <TextInput
-              label="Buscar producto"
-              value={searchTerm}
-              onChangeText={setSearchTerm}
-              style={styles.input}
-            />
-            <FlatList
-              data={filteredInventory}
-              keyExtractor={(item) => item.id}
-              renderItem={({ item }) => (
-                <Card style={styles.card}>
-                  <Card.Title
-                    title={item.name}
-                    subtitle={item.variants && item.variants.length > 0 ? `Variantes: ${item.variants.length}` : "Sin variantes"}
-                  />
-                  <Card.Actions>
-                    <Button onPress={() => selectProduct(item)}>Seleccionar</Button>
-                  </Card.Actions>
-                </Card>
-              )}
-              ListEmptyComponent={<Text>No se encontraron productos.</Text>}
-            />
-            <Button
-              mode="outlined"
-              onPress={() => { setModalVisible(false); setSearchTerm(''); }}
-              style={styles.cancelButton}
-            >
-              Cancelar
-            </Button>
-          </View>
-        </View>
-      </RNModal>
-
-      {/* Modal para selección de variante */}
-      <RNModal
-        visible={variantSelectionModalVisible}
-        transparent={true}
-        animationType="slide"
-        onRequestClose={() => { 
-          setVariantSelectionModalVisible(false); 
-          setSelectedProductForSale(null);
-        }}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContainer}>
-            <ScrollView>
-              <Text style={styles.modalTitle}>
-                Selecciona la variante para {selectedProductForSale ? selectedProductForSale.name : ''}
-              </Text>
-              {selectedProductForSale && selectedProductForSale.variants.map((variant, index) => (
-                <Card key={index} style={styles.card}>
-                  <Card.Title
-                    title={`Talla: ${variant.size} - Color: ${variant.color}`}
-                    subtitle={`Stock: ${variant.stock}`}
-                  />
-                  <Card.Actions>
-                    <Button onPress={() => handleVariantSelection(variant)}>Seleccionar</Button>
-                  </Card.Actions>
-                </Card>
-              ))}
-            </ScrollView>
-            <Button
-              mode="outlined"
-              onPress={() => { setVariantSelectionModalVisible(false); setSelectedProductForSale(null); }}
-              style={styles.cancelButton}
-            >
-              Cancelar
-            </Button>
-          </View>
-        </View>
-      </RNModal>
-
       <FlatList
         data={sales}
         keyExtractor={(item) => item.id}
         ListHeaderComponent={renderHeader}
-        renderItem={({ item }) => (
-          <Card style={styles.saleCard}>
-            <Card.Title title={`Venta: $${item.total}`} subtitle={`Fecha: ${item.date}`} />
-            <Card.Content>
-              {item.products.map(prod => (
-                <Text key={prod.productId + (prod.variant ? `-${prod.variant.size}-${prod.variant.color}` : '')} style={styles.saleItemText}>
-                  {prod.name} {prod.variant ? `- Talla: ${prod.variant.size} - Color: ${prod.variant.color}` : ''} - Cant: {prod.quantity} - Precio: ${prod.price} - Pago: {prod.paymentMethod} - Canal: {prod.channel}
-                </Text>
-              ))}
-              <View style={styles.saleButtonsContainer}>
-                <Button mode="text" onPress={() => handleEditSale(item)}>
-                  Editar
-                </Button>
-                <Button mode="text" onPress={() => handleDeleteSale(item)} color="red">
-                  Eliminar
-                </Button>
-              </View>
-            </Card.Content>
-          </Card>
-        )}
+        renderItem={renderSaleItem}
         ListEmptyComponent={<Text style={styles.empty}>No hay ventas registradas.</Text>}
         contentContainerStyle={styles.container}
       />
@@ -516,18 +565,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 20
   },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'center'
-  },
-  modalContainer: {
-    backgroundColor: 'white',
-    padding: 20,
-    marginHorizontal: 20,
-    maxHeight: '80%',
-    borderRadius: 8
-  },
   label: {
     fontWeight: 'bold',
     marginTop: 10
@@ -542,5 +579,33 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginTop: 10
+  },
+  inlineSearchContainer: {
+    backgroundColor: '#e8e8e8',
+    padding: 10,
+    borderRadius: 8,
+    marginVertical: 10
+  },
+  detailTitle: {
+    fontWeight: 'bold',
+    fontSize: 16,
+    marginBottom: 10
+  },
+  productRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginBottom: 5
+  },
+  productName: {
+    fontWeight: 'bold',
+    marginRight: 5
+  },
+  variantInfo: {
+    marginRight: 5,
+    fontStyle: 'italic'
+  },
+  detailText: {
+    marginRight: 10,
+    fontSize: 14
   }
 });
